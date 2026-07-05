@@ -116,6 +116,11 @@
   .field input:focus,.field select:focus{outline:none;border-color:var(--brass-dim)}
   .note{font-size:12px;color:var(--muted);line-height:1.6;margin:9px 2px 16px}
 
+  .seg{display:flex;gap:8px;margin-bottom:9px}
+  .seg-b{flex:1;background:var(--surface);border:1px solid var(--line);color:var(--muted);padding:11px;border-radius:11px;font-size:14px;font-weight:600;cursor:pointer}
+  .seg-b.on-gain{background:rgba(63,209,139,.14);border-color:var(--gain);color:var(--gain)}
+  .seg-b.on-loss{background:rgba(240,112,122,.14);border-color:var(--loss);color:var(--loss)}
+
   .modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.6);display:none;align-items:flex-end}
   .modal.show{display:flex}
   .sheet{background:var(--surface);width:100%;border-radius:22px 22px 0 0;border-top:1px solid var(--line);max-height:92vh;overflow-y:auto;padding:8px 18px calc(20px + var(--safe-b));animation:up .28s cubic-bezier(.2,.8,.2,1)}
@@ -658,7 +663,7 @@ function drawTrendLog(){
 /* ---- Forms ---- */
 const LOGF={
   dividen:[["ticker","Kode saham","text"],["amount","Jumlah dividen (Rp)","num"],["date","Tanggal","date"]],
-  realized:[["market","Pasar / instrumen","sel:IDX,US,Crypto,Valas,Reksadana,Obligasi/SBN"],["note","Keterangan / kode","text"],["amount","Laba/Rugi (Rp, minus utk rugi)","num"],["date","Tanggal","date"]]
+  realized:[["market","Pasar / instrumen","sel:IDX,US,Crypto,Valas,Reksadana,Obligasi/SBN"],["note","Keterangan / kode","text"],["amount","Nilai Laba/Rugi (Rp)","signed"],["date","Tanggal","date"]]
 };
 let ctx={cat:null,id:null};
 const fdefs=c=>CATS[c]?CATS[c].fields:LOGF[c];
@@ -681,6 +686,14 @@ function openForm(cat,id){
       inp=`<input data-k="${key}" type="date" value="${ex[key]||new Date().toISOString().slice(0,10)}">`;
     }else if(type==="num"){
       inp=`<input data-k="${key}" type="number" inputmode="decimal" value="${ex[key]??""}" placeholder="0">`;
+    }else if(type==="signed"){
+      const val=ex[key], has=(val!==undefined&&val!==""), isNeg=num(val)<0, absVal=has?Math.abs(num(val)):"";
+      const posOn=(!has||!isNeg), negOn=(has&&isNeg);
+      inp=`<div class="seg" data-seg="${key}">
+             <button type="button" class="seg-b${posOn?" on-gain":""}" data-sign="pos" onclick="segPick(this)">Laba +</button>
+             <button type="button" class="seg-b${negOn?" on-loss":""}" data-sign="neg" onclick="segPick(this)">Rugi −</button>
+           </div>
+           <input data-k="${key}" data-signed="1" type="number" inputmode="decimal" min="0" value="${absVal}" placeholder="0">`;
     }else{
       inp=`<input data-k="${key}" type="text" value="${ex[key]??""}">`;
     }
@@ -689,11 +702,22 @@ function openForm(cat,id){
   document.getElementById("modal").classList.add("show");
 }
 function closeForm(){document.getElementById("modal").classList.remove("show");}
+function segPick(btn){
+  const wrap=btn.parentNode;
+  wrap.querySelectorAll(".seg-b").forEach(b=>b.classList.remove("on-gain","on-loss"));
+  btn.classList.add(btn.dataset.sign==="neg"?"on-loss":"on-gain");
+}
 function submitForm(){
   const {cat,id}=ctx;
   const obj=id?S[cat].find(x=>x.id===id):{id:uid()};
   document.querySelectorAll("#formFields [data-k]").forEach(el=>{
-    obj[el.dataset.k]=el.type==="number"?num(el.value):el.value;
+    if(el.dataset.signed){
+      const seg=el.parentNode.querySelector(".seg-b.on-loss");
+      const neg=!!seg;
+      obj[el.dataset.k]=Math.abs(num(el.value))*(neg?-1:1);
+    }else{
+      obj[el.dataset.k]=el.type==="number"?num(el.value):el.value;
+    }
   });
   if(!id && tryMerge(cat,obj)) return;
   if(!id)S[cat].push(obj);
