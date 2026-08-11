@@ -223,6 +223,10 @@
       <button class="mini" style="padding:0 16px" onclick="addRate()">Tambah</button>
     </div>
     <button class="btn" onclick="saveRates()">Simpan Semua Kurs</button>
+    <div class="sec-title">Pajak Dividen Saham US</div>
+    <div class="note">Pemotongan pajak dividen di sumber (US withholding). Untuk investor Indonesia ber-tax treaty (W-8BEN) umumnya 15%. Sesuaikan bila broker Anda memotong berbeda.</div>
+    <div class="field"><label>Pajak dividen US (%)</label><input id="taxUSInput" type="number" inputmode="decimal" placeholder="15"></div>
+    <button class="btn" onclick="saveTaxUS()">Simpan Pajak US</button>
     <div class="sec-title">Cadangkan Data</div>
     <div class="note">Data hanya tersimpan di HP ini. Unduh file cadangan secara berkala. Saat ganti HP, pulihkan dari file itu.</div>
     <button class="btn ghost" onclick="exportData()">Unduh File Cadangan</button>
@@ -265,7 +269,7 @@ const CATS = {
   trading: {name:"Trading Harian", ic:"⚡", color:"#E8C53F",
             fields:[["label","Keterangan","text"],["capital","Modal sekarang (Rp)","num"]]},
   us:      {name:"Saham US", ic:"🇺🇸", color:"#E8A33F",
-            fields:[["ticker","Ticker","text"],["ccy","Mata uang harga","ccy"],["shares","Jml lembar","num"],["avgP","Avg cost / lembar","num"],["curP","Harga sekarang / lembar","num"]]},
+            fields:[["ticker","Ticker","text"],["ccy","Mata uang harga","ccy"],["shares","Jml lembar","num"],["avgP","Avg cost / lembar","num"],["curP","Harga sekarang / lembar","num"],["dps","Dividen / lembar (per pembagian)","num"],["divFreq","Frekuensi dividen","sel:1x setahun,2x setahun,4x setahun,12x setahun"]]},
   bond:    {name:"Obligasi / SBN", ic:"📜", color:"#C98A4A",
             fields:[["seri","Seri","text"],["kind","Jenis","text"],["modal","Modal investasi (Rp)","num"],["navBuy","Avg buy NAV","num"],["navNow","Last NAV / nilai hari ini","num"],["coupon","Kupon % p.a.","num"],["settle","Tgl settlement","date"],["maturity","Jatuh tempo","date"],["status","Status","sel:Aktif,Lunas"]]},
   reksa:   {name:"Reksadana", ic:"📊", color:"#4ABF9A",
@@ -292,7 +296,7 @@ const fmtA=(n,c)=> isFC(c) ? fmtD(n) : fmtN(n);
 const fmtSigC=(n,c)=> isFC(c) ? ((n>=0?"+":"−")+c.toUpperCase()+" "+fmtD(Math.abs(n))) : fmtSig(n);
 
 /* ---- Kondisi awal: kosong. Data masuk lewat Pulihkan dari File. ---- */
-const BLANK={usdIdr:17902,rates:{USD:17902,SGD:13950,EUR:20750},dividen:[],realized:[],incomeLog:[],trend:[],updatedAt:null};
+const BLANK={usdIdr:17902,taxUS:15,rates:{USD:17902,SGD:13950,EUR:20750},dividen:[],realized:[],incomeLog:[],trend:[],updatedAt:null};
 HK.forEach(k=>BLANK[k]=[]);
 
 /* ---- Kurs helper ---- */
@@ -307,6 +311,7 @@ function migrate(s){
   if(!s.rates) s.rates={USD:num(s.usdIdr)||17902};
   if(!s.rates.USD) s.rates.USD=num(s.usdIdr)||17902;
   s.usdIdr=s.rates.USD;
+  if(s.taxUS==null || isNaN(num(s.taxUS))) s.taxUS=15;
   (s.deposito||[]).forEach(d=>{ if(!d.ccy) d.ccy="IDR"; });
   ["us","crypto"].forEach(k=>(s[k]||[]).forEach(it=>{
     if(it.avgP===undefined && it.avgIdr!==undefined){ it.avgP=num(it.avgIdr); it.curP=num(it.curIdr); it.ccy="IDR"; }
@@ -418,6 +423,7 @@ function incomeYr(c,it){switch(c){
   case"deposito":return num(it.principal)*num(it.rate)/100*(1-TAX_DEP)*rate(it.ccy);
   case"bond":return num(it.modal)*num(it.coupon)/100*(1-TAX_BOND);
   case"idx":return num(it.dps)*num(it.lots)*100;
+  case"us":{const gross=num(it.dps)*num(it.shares)*num(it.divFreq); return gross*(1-num(S.taxUS)/100)*rate(it.ccy);}
   case"prop":return num(it.rentMo)*12;
 }return 0;}
 
@@ -437,6 +443,7 @@ function totals(){
 function render(){
   document.getElementById("rateChip").textContent=fmtN(S.rates.USD||S.usdIdr);
   drawRates();
+  document.getElementById("taxUSInput").value=S.taxUS;
   const t=totals();
 
   document.getElementById("nwVal").textContent=fmtN(t.net);
@@ -498,16 +505,19 @@ function drawSummary(t){
 }
 
 function drawIncome(){
-  let dep=0,bond=0,div=0,rent=0;
+  let dep=0,bond=0,div=0,usDiv=0,rent=0;
   S.deposito.forEach(it=>{ if(it.status!=="Cair") dep+=incomeYr("deposito",it); });
   S.bond.forEach(it=>{ if(it.status!=="Lunas") bond+=incomeYr("bond",it); });
   S.idx.forEach(it=>div+=incomeYr("idx",it));
+  S.us.forEach(it=>usDiv+=incomeYr("us",it));
   S.prop.forEach(it=>rent+=incomeYr("prop",it));
-  const tot=dep+bond+div+rent;
+  const tot=dep+bond+div+usDiv+rent;
+  const txUS=num(S.taxUS);
   document.getElementById("incomeBody").innerHTML=
     `<div class="income-row"><span class="k">Bunga deposito <span class="muted">netto, pajak 20%</span></span><span class="v num">${fmt(dep)}</span></div>`+
     `<div class="income-row"><span class="k">Kupon obligasi <span class="muted">netto, pajak 10%</span></span><span class="v num">${fmt(bond)}</span></div>`+
     `<div class="income-row"><span class="k">Estimasi dividen IDX</span><span class="v num">${fmt(div)}</span></div>`+
+    `<div class="income-row"><span class="k">Estimasi dividen saham US <span class="muted">netto, pajak ${fmtD(txUS,2)}%</span></span><span class="v num">${fmt(usDiv)}</span></div>`+
     `<div class="income-row"><span class="k">Sewa properti</span><span class="v num">${fmt(rent)}</span></div>`+
     `<div class="income-row big"><span class="k">Total per tahun</span><span class="v num">${fmt(tot)}</span></div>`+
     `<div class="income-row"><span class="k muted">Setara per bulan</span><span class="v num muted">${fmt(tot/12)}</span></div>`;
@@ -554,7 +564,9 @@ function itemRow(k,it){
     case"valas":title=it.ccy||"Valas";desc=fmtN(it.units)+" "+(it.ccy||"")+" • avg "+fmtN(it.avgRate)+" → "+fmtN(it.curRate);break;
     case"idx":title=(it.ticker||"").toUpperCase();desc=fmtN(it.lots)+" lot • avg "+fmtN(it.avg)+" → "+fmtN(it.current)+(it.dps?" • DPS "+fmtN(it.dps):"");break;
     case"us":{const fc=(it.ccy||"IDR").toUpperCase();title=(it.ticker||"").toUpperCase();
-      desc=fmtN(it.shares)+" lbr • avg "+fmtA(it.avgP,fc)+" → "+fmtA(it.curP,fc)+(isFC(fc)?" "+fc:"")
+      const f=num(it.divFreq), d=num(it.dps);
+      const divTxt=(d>0&&f>0)?" • div "+fmtA(d,fc)+(isFC(fc)?" "+fc:"")+" ×"+f+"/thn":"";
+      desc=fmtN(it.shares)+" lbr • avg "+fmtA(it.avgP,fc)+" → "+fmtA(it.curP,fc)+(isFC(fc)?" "+fc:"")+divTxt
         +(isFC(fc)&&!rate(fc)?" • atur kurs "+fc+" di tab Data":"");break;}
     case"bond":{title=it.seri||"Obligasi";const recv=num(it.couponReceived),un=bondUnits(it);
       desc=(it.kind||"")+" • "+fmtD(un)+" unit • NAV "+fmtD(it.navBuy)+" → "+fmtD(it.navNow)+" • kupon "+(it.coupon||0)+"%"
@@ -728,7 +740,7 @@ function delItem(cat,id){ if(!confirm("Hapus data ini?"))return; S[cat]=S[cat].f
 /* ---- Auto-merge same-code positions (weighted average) ---- */
 const MERGE={
   idx:{key:"ticker",qty:"lots",price:"avg",cur:"current",unit:"lot",keep:["dps","cumMonth"]},
-  us:{key:"ticker",qty:"shares",price:"avgP",cur:"curP",unit:"lembar",keep:[],match:"ccy"},
+  us:{key:"ticker",qty:"shares",price:"avgP",cur:"curP",unit:"lembar",keep:["dps","divFreq"],match:"ccy"},
   crypto:{key:"coin",qty:"units",price:"avgP",cur:"curP",unit:"unit",keep:[],match:"ccy"},
   valas:{key:"ccy",qty:"units",price:"avgRate",cur:"curRate",unit:"unit",keep:[]},
   reksa:{key:"name",qty:"units",price:"navBuy",cur:"navNow",unit:"unit",keep:["kind"]}
@@ -782,6 +794,11 @@ function delRate(c){
   if(c==="USD"){alert("Kurs USD dipakai banyak fitur dan tidak bisa dihapus.");return;}
   if(!confirm("Hapus kurs "+c+"?"))return;
   delete S.rates[c]; save();
+}
+function saveTaxUS(){
+  const v=num(document.getElementById("taxUSInput").value);
+  if(v<0||v>100){alert("Masukkan persentase antara 0 dan 100.");return;}
+  S.taxUS=v; save(); alert("Pajak dividen US tersimpan: "+fmtD(v,2)+"%.");
 }
 function exportData(){
   const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});

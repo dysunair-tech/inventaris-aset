@@ -1,7 +1,7 @@
 /* Service worker Inventaris Aset.
    Strategi: cache-first dengan pembaruan di latar belakang (stale-while-revalidate).
    Naikkan angka CACHE setiap kali index.html berubah. */
-const CACHE = "aset-v8";
+const CACHE = "aset-v9";
 const ASSETS = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png", "icon-512-maskable.png"];
 
 self.addEventListener("install", e => {
